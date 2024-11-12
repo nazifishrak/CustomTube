@@ -1,4 +1,3 @@
-
 const DEFAULT_CATEGORIES = {
     entertainment: {
       enabled: false,
@@ -17,13 +16,14 @@ const DEFAULT_CATEGORIES = {
       keywords: ["football", "basketball", "soccer", "cricket", "tennis"]
     }
   };
-
-
-document.addEventListener('DOMContentLoaded', async () => {
+  
+  document.addEventListener('DOMContentLoaded', async () => {
     try {
+      // Load categories
       const result = await chrome.storage.sync.get(['categories']);
       const categories = result.categories || DEFAULT_CATEGORIES;
   
+      // Render categories
       const container = document.getElementById('categories');
       Object.entries(categories).forEach(([name, category]) => {
         const div = document.createElement('div');
@@ -34,24 +34,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         `;
         container.appendChild(div);
   
-        // change listener for each checkbox
+        // Add change listener for each checkbox
         document.getElementById(name).addEventListener('change', async (e) => {
           try {
             categories[name].enabled = e.target.checked;
             await chrome.storage.sync.set({ categories });
+            // Notify content script to update filtering
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab?.id) {
+              chrome.tabs.sendMessage(tab.id, { type: 'settingsUpdated' });
+            }
           } catch (error) {
             console.error('Error saving category state:', error);
           }
         });
       });
   
-      // bknd listener in the open full setting
-      document.getElementById('openSettings').addEventListener('click', () => {
-        chrome.runtime.openOptionsPage();
-      });
+      // Add click listener for settings button
+      const settingsButton = document.getElementById('openSettings');
+      if (settingsButton) {
+        settingsButton.addEventListener('click', () => {
+          chrome.runtime.openOptionsPage();
+        });
+      }
     } catch (error) {
       console.error('Error initializing popup:', error);
-      // Display error message to the user
+      // Show error message to user
       document.body.innerHTML = `
         <div style="color: red; padding: 10px;">
           An error occurred. Please try again.
@@ -59,4 +67,3 @@ document.addEventListener('DOMContentLoaded', async () => {
       `;
     }
   });
-  
