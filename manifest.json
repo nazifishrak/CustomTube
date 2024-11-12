@@ -10,5 +10,19 @@
     ],
     "host_permissions": [
       "https://www.youtube.com/*"
+    ],
+    "action": {
+      "default_popup": "popup.html",
+      "default_icon": {
+        "16": "icons/icon16.png"
+      }
+    },
+    "options_page": "options.html",
+    "content_scripts": [
+        {
+            "matches": ["https://www.youtube.com/*"],
+            "js": ["contentScript.js"],
+            "run_at": "document_idle"
+        }
     ]
 }
