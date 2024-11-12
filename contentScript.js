@@ -2,6 +2,7 @@ class YouTubeFilter {
     constructor() {
       this.categories = {};
       this.whitelist = { channels: [], videos: [] };
+      this.debug = true;
       this.isProcessing = false;
       this.init();
     }
@@ -13,22 +14,14 @@ class YouTubeFilter {
       this.setupMessageListener();
     }
   
-    async loadSettings() {
-      try {
-        const result = await chrome.storage.sync.get(['categories']);
-        this.categories = result.categories || {};
-        console.log('Settings loaded:', this.categories);
-      } catch (error) {
-        console.error('Error loading settings:', error);
-      }
-    }
-  
     setupMessageListener() {
-      chrome.runtime.onMessage.addListener((message) => {
+      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message.type === 'settingsUpdated') {
           console.log('Settings updated, refiltering content...');
           this.loadSettings().then(() => {
+           
             this.resetFiltering();
+            
             this.filterAllContent();
           });
         }
@@ -36,19 +29,21 @@ class YouTubeFilter {
     }
   
     setupScrollObserver() {
+      // Create an intersection observer to detect when new content comes into view
       this.intersectionObserver = new IntersectionObserver((entries) => {
         if (this.isProcessing) return;
-  
+        
         const hasNewContent = entries.some(entry => entry.isIntersecting);
         if (hasNewContent) {
           this.filterNewContent();
         }
       }, {
         root: null,
-        rootMargin: '50px',
+        rootMargin: '50px', // Start loading a bit before items come into view
         threshold: 0.1
       });
   
+      // Observe all potential content containers
       const containers = document.querySelectorAll('#contents, ytd-rich-grid-renderer');
       containers.forEach(container => {
         if (container) this.intersectionObserver.observe(container);
@@ -69,7 +64,19 @@ class YouTubeFilter {
       });
     }
   
+    async loadSettings() {
+      try {
+        const result = await chrome.storage.sync.get(['categories', 'whitelist']);
+        this.categories = result.categories || DEFAULT_CATEGORIES;
+        this.whitelist = result.whitelist || { channels: [], videos: [] };
+        console.log('Settings loaded:', this.categories);
+      } catch (error) {
+        console.error('Error loading settings:', error);
+      }
+    }
+  
     resetFiltering() {
+      // Remove all filtering marks and show all videos
       document.querySelectorAll('[data-filtered]').forEach(el => {
         el.removeAttribute('data-filtered');
         el.style.removeProperty('display');
@@ -77,6 +84,7 @@ class YouTubeFilter {
     }
   
     filterAllContent() {
+      // Filter all content, including already filtered items
       this.isProcessing = true;
       try {
         const allVideos = document.querySelectorAll(`
@@ -92,6 +100,7 @@ class YouTubeFilter {
     }
   
     filterNewContent() {
+      // Only filter content that hasn't been processed yet
       this.isProcessing = true;
       try {
         const newVideos = document.querySelectorAll(`
@@ -109,6 +118,7 @@ class YouTubeFilter {
     processVideos(videos) {
       videos.forEach(video => {
         try {
+          // Mark as processed
           video.setAttribute('data-filtered', 'true');
   
           const titleElement = video.querySelector('#video-title');
@@ -146,15 +156,13 @@ class YouTubeFilter {
     }
   
     hideElement(element) {
-      if (element && element.style) {
-        element.style.setProperty('display', 'none', 'important');
-      }
+      if (!element || !element.style) return;
+      element.style.setProperty('display', 'none', 'important');
     }
   
     showElement(element) {
-      if (element && element.style) {
-        element.style.removeProperty('display');
-      }
+      if (!element || !element.style) return;
+      element.style.removeProperty('display');
     }
   
     debounce(func, wait) {
@@ -169,3 +177,5 @@ class YouTubeFilter {
 
   const youtubeFilter = new YouTubeFilter();
   
+
+  window.youtubeFilter = youtubeFilter;
