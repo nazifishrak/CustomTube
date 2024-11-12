@@ -1,0 +1,14 @@
+{
+    "manifest_version": 3,
+    "name": "YouTube Content Filter",
+    "version": "1.0",
+    "description": "Filter and hide YouTube videos based on selected categories",
+    "permissions": [
+      "activeTab",
+      "storage",
+      "tabs"
+    ],
+    "host_permissions": [
+      "https://www.youtube.com/*"
+    ]
+}
