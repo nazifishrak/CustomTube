@@ -13,11 +13,13 @@ class YouTubeFilter {
       this.setupMutationObserver();
       this.setupMessageListener();
     }
-  
+
+
     setupMessageListener() {
       chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message.type === 'settingsUpdated') {
           console.log('Settings updated, refiltering content...');
+          this.isProcessing = false; 
           this.loadSettings().then(() => {
            
             this.resetFiltering();
@@ -83,21 +85,22 @@ class YouTubeFilter {
       });
     }
   
+      
     filterAllContent() {
-      // Filter all content, including already filtered items
-      this.isProcessing = true;
-      try {
-        const allVideos = document.querySelectorAll(`
-          ytd-rich-item-renderer,
-          ytd-video-renderer,
-          ytd-compact-video-renderer,
-          ytd-grid-video-renderer
-        `);
-        this.processVideos(allVideos);
-      } finally {
-        this.isProcessing = false;
+        // Filter all content, including already filtered items
+        this.isProcessing = true;
+        try {
+          const allVideos = document.querySelectorAll(`
+            ytd-rich-item-renderer,
+            ytd-video-renderer,
+            ytd-compact-video-renderer,
+            ytd-grid-video-renderer
+          `);
+          this.processVideos(allVideos);
+        } finally {
+          this.isProcessing = false;
+        }
       }
-    }
   
     filterNewContent() {
       // Only filter content that hasn't been processed yet
