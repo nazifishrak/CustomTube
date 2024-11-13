@@ -233,13 +233,15 @@ class ContentFilter {
         if (video.hasAttribute('data-filtered')) return;
 
         const titleElement = video.querySelector('#video-title, .title');
-        if (!titleElement) return;
+        const channelElement = video.querySelector('#channel-name, .channel-name');
+        if (!titleElement || !channelElement) return;
 
         const title = titleElement.textContent?.trim() || '';
+        const channelName = channelElement.textContent?.trim() || '';
         let shouldHide = false;
 
         if (this.categories.distraction?.enabled) {
-          shouldHide = this.checkForDistraction(title);
+          shouldHide = this.checkForDistraction(title+" "+channelName);
         }
 
         if (shouldHide) {

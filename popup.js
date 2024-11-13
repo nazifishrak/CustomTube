@@ -2,9 +2,17 @@ const DEFAULT_CATEGORIES = {
   distraction: {
     enabled: false,
     threshold: 0.6,
-    keywords: ['entertainment', 'game', 'fun', 'meme', 'reaction', 'prank', 'challenge',
-      'viral', 'trending', 'funny', 'comedy', 'vlog', 'gaming', 'minecraft',
-      'fortnite', 'reaction', 'compilation', 'drama', 'gossip', 'celebrity']
+    keywords: [ // Entertainment keywords
+      "entertainment", "celebrity", "gossip", "viral", "funny", "comedy", "meme",
+      "challenge", "reaction", "reacts", "prank", "drama", "tv", "music", "movie",
+      "dance", "cover", "gaming", "minecraft", "fortnite", "trending", "vlog",
+      "fun", "unboxing", "reviewing", "ranking", "exploring", "commenting", "parody",
+
+      // Political keywords
+      "politics", "debate", "election", "government", "policy", "trump", "biden",
+      "congress", "democracy", "news", "analysis", "scandal", "protest", "freedom",
+      "laws", "activism", "speech", "campaign", "reacting", "explaining",
+      "discussing", "criticizing", "supporting", "reviewing"]
   },
   everything: {
     enabled: false,
