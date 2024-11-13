@@ -1,28 +1,31 @@
 {
-    "manifest_version": 3,
-    "name": "YouTube Content Filter",
-    "version": "1.0",
-    "description": "Filter and hide YouTube videos based on selected categories",
-    "permissions": [
-      "activeTab",
-      "storage",
-      "tabs"
-    ],
-    "host_permissions": [
-      "https://www.youtube.com/*"
-    ],
-    "action": {
-      "default_popup": "popup.html",
-      "default_icon": {
-        "16": "icons/icon16.png"
-      }
-    },
-    "options_page": "options.html",
-    "content_scripts": [
-        {
-            "matches": ["https://www.youtube.com/*"],
-            "js": ["contentScript.js"],
-            "run_at": "document_idle"
-        }
-    ]
+  "manifest_version": 3,
+  "name": "YouTube Content Filter",
+  "version": "1.0",
+  "description": "Filter and hide YouTube videos based on distractions or block everything",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [{
+    "matches": ["https://www.youtube.com/*"],
+    "js": ["contentScript.js"],
+    "run_at": "document_idle"
+  }]
 }
