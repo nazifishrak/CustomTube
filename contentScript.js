@@ -54,35 +54,12 @@ class ContentFilter {
       ytd-rich-shelf-renderer[is-shorts] {
         display: none !important;
       }
-      body.everything-mode #content,
-      body.everything-mode ytd-browse,
-      body.everything-mode ytd-watch-flexy,
-      body.everything-mode ytd-rich-grid-renderer,
-      body.everything-mode ytd-two-column-browse-results-renderer,
-      body.everything-mode ytd-search {
+      /* Everything mode styles */
+      body.everything-mode ytd-browse[page-subtype="home"] #contents,
+      body.everything-mode ytd-browse[page-subtype="home"] ytd-rich-grid-renderer,
+      body.everything-mode ytd-browse[page-subtype="home"] ytd-shelf-renderer,
+      body.everything-mode ytd-watch-next-secondary-results-renderer {
         display: none !important;
-      }
-      .everything-message {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: white;
-        padding: 20px 40px;
-        border-radius: 8px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        text-align: center;
-        z-index: 9999;
-      }
-      .everything-message h2 {
-        margin: 0 0 10px 0;
-        color: #333;
-        font-size: 24px;
-      }
-      .everything-message p {
-        margin: 0;
-        color: #666;
-        font-size: 16px;
       }
     `;
     document.head.appendChild(style);
@@ -90,7 +67,6 @@ class ContentFilter {
 
   setupMessageListener() {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      // Add ping handler
       if (message.type === 'ping') {
         sendResponse({ status: 'ready' });
         return;
@@ -109,41 +85,12 @@ class ContentFilter {
     });
   }
 
-  handleEverythingMode(enabled) {
-    if (enabled) {
-      // Hide all content
-      document.body.classList.add('everything-mode');
-
-      // Add or update message
-      let message = document.querySelector('.everything-message');
-      if (!message) {
-        message = document.createElement('div');
-        message.className = 'everything-message';
-        message.innerHTML = `
-          <h2>All Content Hidden</h2>
-          <p>Take a break from YouTube</p>
-        `;
-        document.body.appendChild(message);
-      }
-    } else {
-      // Show content
-      document.body.classList.remove('everything-mode');
-
-      // Remove message
-      const message = document.querySelector('.everything-message');
-      if (message) {
-        message.remove();
-      }
-    }
-  }
-
   async loadSettings() {
     try {
       const result = await chrome.storage.sync.get(['categories']);
       this.categories = result.categories || {};
       console.log('Loaded filter settings:', this.categories);
 
-      // Check if everything mode is enabled on load
       if (this.categories.everything?.enabled) {
         this.handleEverythingMode(true);
       }
@@ -155,7 +102,7 @@ class ContentFilter {
 
   setupScrollObserver() {
     this.intersectionObserver = new IntersectionObserver((entries) => {
-      if (this.isProcessing || this.categories.everything?.enabled) return;
+      if (this.isProcessing || (this.categories.everything?.enabled && window.location.pathname === '/')) return;
 
       const hasNewContent = entries.some(entry => entry.isIntersecting);
       if (hasNewContent) {
@@ -177,13 +124,8 @@ class ContentFilter {
     this.mutationObserver = new MutationObserver(this.debounce(() => {
       if (this.isProcessing) return;
 
-      if (this.categories.everything?.enabled) {
-        this.handleEverythingMode(true);
-        return;
-      }
-
-      this.filterNewContent();
       this.removeShorts();
+      this.filterNewContent();
     }, 100));
 
     this.mutationObserver.observe(document.body, {
@@ -204,9 +146,15 @@ class ContentFilter {
       ytd-rich-shelf-renderer[is-shorts]
     `);
 
-    shortsElements.forEach(el => {
-      el.remove();
-    });
+    shortsElements.forEach(el => el.remove());
+  }
+
+  handleEverythingMode(enabled) {
+    if (enabled) {
+      document.body.classList.add('everything-mode');
+    } else {
+      document.body.classList.remove('everything-mode');
+    }
   }
 
   async handleSettingsUpdate() {
@@ -222,23 +170,17 @@ class ContentFilter {
       console.log('Filtering all content...');
       this.removeShorts();
 
-      // Check if everything mode is enabled
       if (this.categories.everything?.enabled) {
         this.handleEverythingMode(true);
-        return;
+
+        // Only process videos if not on homepage
+        if (window.location.pathname !== '/') {
+          this.processVideos(this.getAllVideos());
+        }
       } else {
         this.handleEverythingMode(false);
+        this.processVideos(this.getAllVideos());
       }
-
-      const allVideos = document.querySelectorAll(`
-        ytd-rich-item-renderer:not([is-shorts]),
-        ytd-video-renderer:not([is-shorts]),
-        ytd-compact-video-renderer:not([is-shorts]),
-        ytd-grid-video-renderer:not([is-shorts])
-      `);
-
-      console.log(`Found ${allVideos.length} videos to process`);
-      this.processVideos(Array.from(allVideos));
     } catch (error) {
       console.error('Error during filtering:', error);
     } finally {
@@ -246,8 +188,20 @@ class ContentFilter {
     }
   }
 
+  getAllVideos() {
+    return Array.from(document.querySelectorAll(`
+      ytd-rich-item-renderer:not([is-shorts]),
+      ytd-video-renderer:not([is-shorts]),
+      ytd-compact-video-renderer:not([is-shorts]),
+      ytd-grid-video-renderer:not([is-shorts])
+    `));
+  }
+
   filterNewContent() {
-    if (!this.initialized || this.categories.everything?.enabled) return;
+    if (!this.initialized) return;
+
+    // Don't process new content in everything mode if on homepage
+    if (this.categories.everything?.enabled && window.location.pathname === '/') return;
 
     this.isProcessing = true;
     try {
@@ -272,10 +226,7 @@ class ContentFilter {
   }
 
   processVideos(videos) {
-    if (this.categories.everything?.enabled) {
-      this.handleEverythingMode(true);
-      return;
-    }
+    if (this.categories.everything?.enabled && window.location.pathname === '/') return;
 
     videos.forEach(video => {
       try {
@@ -286,20 +237,13 @@ class ContentFilter {
 
         const title = titleElement.textContent?.trim() || '';
         let shouldHide = false;
-        let labelText = '';
 
-        // Check for distractions if enabled
         if (this.categories.distraction?.enabled) {
-          const isDistraction = this.checkForDistraction(title);
-          if (isDistraction) {
-            shouldHide = true;
-            labelText = 'Distraction';
-          }
+          shouldHide = this.checkForDistraction(title);
         }
 
         if (shouldHide) {
           this.hideElement(video);
-          this.addLabel(video, labelText);
         } else {
           this.showElement(video);
         }
@@ -317,17 +261,6 @@ class ContentFilter {
     return keywords.some(keyword => textLower.includes(keyword.toLowerCase()));
   }
 
-  addLabel(element, text) {
-    const thumbnailContainer = element.querySelector('#thumbnail');
-    if (thumbnailContainer) {
-      thumbnailContainer.style.position = 'relative';
-      const label = document.createElement('div');
-      label.className = 'category-label';
-      label.textContent = text;
-      thumbnailContainer.appendChild(label);
-    }
-  }
-
   hideElement(element) {
     if (!element) return;
     element.classList.add('filtered-content');
@@ -336,10 +269,6 @@ class ContentFilter {
   showElement(element) {
     if (!element) return;
     element.classList.remove('filtered-content');
-    const label = element.querySelector('.category-label');
-    if (label) {
-      label.remove();
-    }
   }
 
   resetFiltering() {
