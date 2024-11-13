@@ -29,21 +29,31 @@ chrome.runtime.onInstalled.addListener(async () => {
 // Listen for messages
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'settingsUpdated') {
-        // Broadcast to all YouTube tabs
-        chrome.tabs.query({ url: 'https://www.youtube.com/*' }, async (tabs) => {
-            for (const tab of tabs) {
-                try {
-                    await chrome.tabs.sendMessage(tab.id, {
-                        type: 'settingsUpdated',
-                        timestamp: Date.now()
-                    });
-                    console.log(`Updated tab ${tab.id}`);
-                } catch (error) {
-                    console.error(`Error updating tab ${tab.id}:`, error);
-                }
+        // Immediately acknowledge receipt of the message
+        sendResponse({ status: 'processing' });
+
+        // Find and update YouTube tabs
+        chrome.tabs.query({ url: 'https://www.youtube.com/*' }, function(tabs) {
+            if (!tabs || tabs.length === 0) {
+                console.log('No YouTube tabs found to update');
+                return;
             }
-            sendResponse({ status: 'success' });
+
+            tabs.forEach(function(tab) {
+                chrome.tabs.sendMessage(
+                    tab.id,
+                    { type: 'settingsUpdated', timestamp: Date.now() },
+                    function(response) {
+                        if (chrome.runtime.lastError) {
+                            console.warn(`Error updating tab ${tab.id}:`, chrome.runtime.lastError.message);
+                        } else {
+                            console.log(`Successfully updated tab ${tab.id}`);
+                        }
+                    }
+                );
+            });
         });
+
         return true; // Keep message channel open
     }
 });

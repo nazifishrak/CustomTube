@@ -1,7 +1,7 @@
 class ContentFilter {
   constructor() {
     this.categories = {};
-    this.debug = false;
+    this.debug = true;
     this.isProcessing = false;
     this.initialized = false;
     this.initializeFilter();
@@ -45,23 +45,33 @@ class ContentFilter {
         z-index: 2;
         pointer-events: none;
       }
+      /* Hide Shorts section and button */
+      ytd-reel-shelf-renderer,
+      ytd-guide-entry-renderer[title="Shorts"],
+      ytd-mini-guide-entry-renderer[aria-label="Shorts"],
+      ytd-guide-entry-renderer a[title="Shorts"],
+      ytd-mini-guide-entry-renderer a[aria-label="Shorts"],
+      ytd-rich-shelf-renderer[is-shorts] {
+        display: none !important;
+      }
+      /* Everything mode styles */
+      body.everything-mode ytd-browse[page-subtype="home"] #contents,
+      body.everything-mode ytd-browse[page-subtype="home"] ytd-rich-grid-renderer,
+      body.everything-mode ytd-browse[page-subtype="home"] ytd-shelf-renderer,
+      body.everything-mode ytd-watch-next-secondary-results-renderer {
+        display: none !important;
+      }
     `;
     document.head.appendChild(style);
   }
 
-  async loadSettings() {
-    try {
-      const result = await chrome.storage.sync.get(['categories']);
-      this.categories = result.categories || {};
-      console.log('Loaded filter settings:', this.categories);
-    } catch (error) {
-      console.error('Error loading settings:', error);
-      this.categories = {};
-    }
-  }
-
   setupMessageListener() {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.type === 'ping') {
+        sendResponse({ status: 'ready' });
+        return;
+      }
+
       if (message.type === 'settingsUpdated') {
         console.log('Received settings update');
         this.handleSettingsUpdate()
@@ -75,9 +85,24 @@ class ContentFilter {
     });
   }
 
+  async loadSettings() {
+    try {
+      const result = await chrome.storage.sync.get(['categories']);
+      this.categories = result.categories || {};
+      console.log('Loaded filter settings:', this.categories);
+
+      if (this.categories.everything?.enabled) {
+        this.handleEverythingMode(true);
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      this.categories = {};
+    }
+  }
+
   setupScrollObserver() {
     this.intersectionObserver = new IntersectionObserver((entries) => {
-      if (this.isProcessing) return;
+      if (this.isProcessing || (this.categories.everything?.enabled && window.location.pathname === '/')) return;
 
       const hasNewContent = entries.some(entry => entry.isIntersecting);
       if (hasNewContent) {
@@ -98,6 +123,8 @@ class ContentFilter {
   setupMutationObserver() {
     this.mutationObserver = new MutationObserver(this.debounce(() => {
       if (this.isProcessing) return;
+
+      this.removeShorts();
       this.filterNewContent();
     }, 100));
 
@@ -107,6 +134,27 @@ class ContentFilter {
       attributes: true,
       attributeFilter: ['src', 'href']
     });
+  }
+
+  removeShorts() {
+    const shortsElements = document.querySelectorAll(`
+      ytd-reel-shelf-renderer,
+      ytd-guide-entry-renderer[title="Shorts"],
+      ytd-mini-guide-entry-renderer[aria-label="Shorts"],
+      ytd-guide-entry-renderer a[title="Shorts"],
+      ytd-mini-guide-entry-renderer a[aria-label="Shorts"],
+      ytd-rich-shelf-renderer[is-shorts]
+    `);
+
+    shortsElements.forEach(el => el.remove());
+  }
+
+  handleEverythingMode(enabled) {
+    if (enabled) {
+      document.body.classList.add('everything-mode');
+    } else {
+      document.body.classList.remove('everything-mode');
+    }
   }
 
   async handleSettingsUpdate() {
@@ -120,14 +168,19 @@ class ContentFilter {
     this.isProcessing = true;
     try {
       console.log('Filtering all content...');
-      const allVideos = document.querySelectorAll(`
-        ytd-rich-item-renderer,
-        ytd-video-renderer,
-        ytd-compact-video-renderer,
-        ytd-grid-video-renderer
-      `);
-      console.log(`Found ${allVideos.length} videos to process`);
-      this.processVideos(Array.from(allVideos));
+      this.removeShorts();
+
+      if (this.categories.everything?.enabled) {
+        this.handleEverythingMode(true);
+
+        // Only process videos if not on homepage
+        if (window.location.pathname !== '/') {
+          this.processVideos(this.getAllVideos());
+        }
+      } else {
+        this.handleEverythingMode(false);
+        this.processVideos(this.getAllVideos());
+      }
     } catch (error) {
       console.error('Error during filtering:', error);
     } finally {
@@ -135,17 +188,32 @@ class ContentFilter {
     }
   }
 
+  getAllVideos() {
+    return Array.from(document.querySelectorAll(`
+      ytd-rich-item-renderer:not([is-shorts]),
+      ytd-video-renderer:not([is-shorts]),
+      ytd-compact-video-renderer:not([is-shorts]),
+      ytd-grid-video-renderer:not([is-shorts])
+    `));
+  }
+
   filterNewContent() {
     if (!this.initialized) return;
 
+    // Don't process new content in everything mode if on homepage
+    if (this.categories.everything?.enabled && window.location.pathname === '/') return;
+
     this.isProcessing = true;
     try {
+      this.removeShorts();
+
       const newVideos = document.querySelectorAll(`
-        ytd-rich-item-renderer:not([data-filtered]),
-        ytd-video-renderer:not([data-filtered]),
-        ytd-compact-video-renderer:not([data-filtered]),
-        ytd-grid-video-renderer:not([data-filtered])
+        ytd-rich-item-renderer:not([data-filtered]):not([is-shorts]),
+        ytd-video-renderer:not([data-filtered]):not([is-shorts]),
+        ytd-compact-video-renderer:not([data-filtered]):not([is-shorts]),
+        ytd-grid-video-renderer:not([data-filtered]):not([is-shorts])
       `);
+
       if (newVideos.length > 0) {
         console.log(`Processing ${newVideos.length} new videos`);
         this.processVideos(Array.from(newVideos));
@@ -158,6 +226,8 @@ class ContentFilter {
   }
 
   processVideos(videos) {
+    if (this.categories.everything?.enabled && window.location.pathname === '/') return;
+
     videos.forEach(video => {
       try {
         if (video.hasAttribute('data-filtered')) return;
@@ -166,22 +236,16 @@ class ContentFilter {
         if (!titleElement) return;
 
         const title = titleElement.textContent?.trim() || '';
+        let shouldHide = false;
 
-        // Check if "everything" category is enabled
-        if (this.categories.everything?.enabled) {
-          this.hideElement(video);
-          this.addLabel(video, 'Blocked');
-          video.setAttribute('data-filtered', 'true');
-          return;
+        if (this.categories.distraction?.enabled) {
+          shouldHide = this.checkForDistraction(title);
         }
 
-        // Check for distractions if enabled
-        if (this.categories.distraction?.enabled) {
-          const isDistraction = this.checkForDistraction(title);
-          if (isDistraction) {
-            this.hideElement(video);
-            this.addLabel(video, 'Distraction');
-          }
+        if (shouldHide) {
+          this.hideElement(video);
+        } else {
+          this.showElement(video);
         }
 
         video.setAttribute('data-filtered', 'true');
@@ -197,33 +261,22 @@ class ContentFilter {
     return keywords.some(keyword => textLower.includes(keyword.toLowerCase()));
   }
 
-  addLabel(element, text) {
-    const thumbnailContainer = element.querySelector('#thumbnail');
-    if (thumbnailContainer) {
-      thumbnailContainer.style.position = 'relative';
-      const label = document.createElement('div');
-      label.className = 'category-label';
-      label.textContent = text;
-      thumbnailContainer.appendChild(label);
-    }
-  }
-
   hideElement(element) {
-    if (!element?.style) return;
+    if (!element) return;
     element.classList.add('filtered-content');
   }
 
   showElement(element) {
-    if (!element?.style) return;
+    if (!element) return;
     element.classList.remove('filtered-content');
   }
 
   resetFiltering() {
     console.log('Resetting all filtered content...');
+    this.handleEverythingMode(false);
     document.querySelectorAll('[data-filtered]').forEach(el => {
       el.removeAttribute('data-filtered');
       this.showElement(el);
-      el.querySelectorAll('.category-label').forEach(label => label.remove());
     });
   }
 
