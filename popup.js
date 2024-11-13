@@ -8,8 +8,8 @@ const DEFAULT_CATEGORIES = {
   },
   everything: {
     enabled: false,
-    threshold: 0.1, // Low threshold since we want to match everything
-    keywords: ['*'] // Special keyword to match everything
+    threshold: 0.1,
+    keywords: ['*']
   }
 };
 
@@ -25,10 +25,58 @@ class PopupManager {
       await this.loadSettings();
       this.renderCategories();
       this.setupEventListeners();
+      await this.checkYouTubeTabs(); // Check existing YouTube tabs on popup open
     } catch (error) {
       console.error('Error initializing popup:', error);
       this.showNotification('Failed to initialize settings', 'error');
     }
+  }
+
+  async checkYouTubeTabs() {
+    try {
+      const tabs = await chrome.tabs.query({ url: 'https://www.youtube.com/*' });
+      if (tabs.length > 0) {
+        // Try to ping each tab to see if content script is ready
+        let needsReload = false;
+        for (const tab of tabs) {
+          try {
+            await chrome.tabs.sendMessage(tab.id, { type: 'ping' });
+          } catch (error) {
+            needsReload = true;
+            break;
+          }
+        }
+
+        if (needsReload) {
+          this.showReloadMessage();
+        }
+      }
+    } catch (error) {
+      console.error('Error checking YouTube tabs:', error);
+    }
+  }
+
+  showReloadMessage() {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'reload-message';
+    messageDiv.innerHTML = `
+      <div class="alert">
+        <p>⚠️ Please reload YouTube tabs for changes to take effect</p>
+        <button id="reloadTabs" class="reload-btn">Reload YouTube Tabs</button>
+      </div>
+    `;
+
+    // Insert at the top of the popup
+    this.container.parentNode.insertBefore(messageDiv, this.container);
+
+    // Add click handler for reload button
+    document.getElementById('reloadTabs').addEventListener('click', async () => {
+      const tabs = await chrome.tabs.query({ url: 'https://www.youtube.com/*' });
+      for (const tab of tabs) {
+        chrome.tabs.reload(tab.id);
+      }
+      messageDiv.remove();
+    });
   }
 
   async loadSettings() {
@@ -74,156 +122,125 @@ class PopupManager {
 
       // Only add keyword management for "distraction" category
       if (name === 'distraction') {
-        // Add keyword input
-        const inputContainer = document.createElement('div');
-        inputContainer.className = 'keyword-input-container';
-
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'keyword-input';
-        input.placeholder = 'Add new keyword';
-        input.id = `keyword-input-${name}`;
-
-        const addButton = document.createElement('button');
-        addButton.className = 'add-keyword-btn';
-        addButton.textContent = 'Add';
-        addButton.dataset.category = name;
-
-        inputContainer.appendChild(input);
-        inputContainer.appendChild(addButton);
-        div.appendChild(inputContainer);
-
-        // Add keyword list
-        const keywordList = document.createElement('div');
-        keywordList.className = 'keyword-list';
-        keywordList.id = `keywords-${name}`;
-
-        category.keywords.forEach(keyword => {
-          const tag = document.createElement('div');
-          tag.className = 'keyword-tag';
-          tag.innerHTML = `
-            <span>${keyword}</span>
-            <button class="remove-keyword" data-category="${name}" data-keyword="${keyword}">×</button>
-          `;
-          keywordList.appendChild(tag);
-        });
-
-        div.appendChild(keywordList);
+        // Add keyword input and list
+        this.addKeywordManagement(div, category);
       }
 
       this.container.appendChild(div);
     });
   }
 
+  addKeywordManagement(div, category) {
+    const inputContainer = document.createElement('div');
+    inputContainer.className = 'keyword-input-container';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'keyword-input';
+    input.placeholder = 'Add new keyword';
+
+    const addButton = document.createElement('button');
+    addButton.className = 'add-keyword-btn';
+    addButton.textContent = 'Add';
+
+    inputContainer.appendChild(input);
+    inputContainer.appendChild(addButton);
+    div.appendChild(inputContainer);
+
+    // Add keyword list
+    const keywordList = document.createElement('div');
+    keywordList.className = 'keyword-list';
+
+    category.keywords.forEach(keyword => {
+      const tag = document.createElement('div');
+      tag.className = 'keyword-tag';
+      tag.innerHTML = `
+        <span>${keyword}</span>
+        <button class="remove-keyword" data-keyword="${keyword}">×</button>
+      `;
+      keywordList.appendChild(tag);
+    });
+
+    div.appendChild(keywordList);
+
+    // Add event listeners
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        this.addKeyword(input.value);
+      }
+    });
+
+    addButton.addEventListener('click', () => {
+      this.addKeyword(input.value);
+    });
+
+    keywordList.addEventListener('click', (e) => {
+      if (e.target.classList.contains('remove-keyword')) {
+        this.removeKeyword(e.target.dataset.keyword);
+      }
+    });
+  }
+
+  async addKeyword(keyword) {
+    keyword = keyword.trim().toLowerCase();
+    if (!keyword) return;
+
+    if (!this.categories.distraction.keywords.includes(keyword)) {
+      this.categories.distraction.keywords.push(keyword);
+      await this.saveAndUpdate();
+      this.renderCategories();
+    }
+  }
+
+  async removeKeyword(keyword) {
+    this.categories.distraction.keywords = this.categories.distraction.keywords
+        .filter(k => k !== keyword);
+    await this.saveAndUpdate();
+    this.renderCategories();
+  }
+
   setupEventListeners() {
     this.container.addEventListener('change', async (e) => {
-      if (e.target.type === 'checkbox' && !this.isUpdating) {
+      if (e.target.type === 'checkbox') {
         const categoryName = e.target.id;
         const isChecked = e.target.checked;
 
-        try {
-          this.isUpdating = true;
-          this.updateCheckboxStates(true);
-
-          // Update local state
-          this.categories[categoryName].enabled = isChecked;
-
-          // If "everything" is enabled, disable "distraction"
-          if (categoryName === 'everything' && isChecked) {
-            this.categories.distraction.enabled = false;
-            this.renderCategories();
-          }
-
-          // Save to storage and notify content script
-          await this.saveSettings();
-          await this.notifyContentScript();
-
-          console.log(`Successfully updated ${categoryName} to ${isChecked}`);
-          this.showNotification('Settings updated successfully!', 'success');
-        } catch (error) {
-          console.error('Error updating settings:', error);
-          this.categories[categoryName].enabled = !isChecked;
-          this.showNotification('Failed to update settings', 'error');
-        } finally {
-          this.isUpdating = false;
-          this.updateCheckboxStates(false);
+        if (categoryName === 'everything' && isChecked) {
+          this.categories.distraction.enabled = false;
         }
-      }
-    });
 
-    // Keyword management listeners
-    this.container.addEventListener('click', async (e) => {
-      if (e.target.classList.contains('add-keyword-btn')) {
-        const categoryName = e.target.dataset.category;
-        const input = document.getElementById(`keyword-input-${categoryName}`);
-        const keyword = input.value.trim().toLowerCase();
-
-        if (keyword && !this.categories[categoryName].keywords.includes(keyword)) {
-          this.categories[categoryName].keywords.push(keyword);
-          await this.saveSettings();
-          await this.notifyContentScript();
-          this.renderCategories();
-          input.value = '';
-          this.showNotification('Keyword added successfully!', 'success');
-        }
-      } else if (e.target.classList.contains('remove-keyword')) {
-        const { category, keyword } = e.target.dataset;
-        this.categories[category].keywords = this.categories[category].keywords
-            .filter(k => k !== keyword);
-        await this.saveSettings();
-        await this.notifyContentScript();
-        this.renderCategories();
-        this.showNotification('Keyword removed successfully!', 'success');
-      }
-    });
-
-    // Add keyword on Enter key
-    this.container.addEventListener('keypress', async (e) => {
-      if (e.target.classList.contains('keyword-input') && e.key === 'Enter') {
-        const categoryName = 'distraction'; // Only distraction category has keywords
-        const keyword = e.target.value.trim().toLowerCase();
-
-        if (keyword && !this.categories[categoryName].keywords.includes(keyword)) {
-          this.categories[categoryName].keywords.push(keyword);
-          await this.saveSettings();
-          await this.notifyContentScript();
-          this.renderCategories();
-          e.target.value = '';
-          this.showNotification('Keyword added successfully!', 'success');
-        }
+        this.categories[categoryName].enabled = isChecked;
+        await this.saveAndUpdate();
       }
     });
   }
 
-  updateCheckboxStates(disabled) {
-    const checkboxes = this.container.querySelectorAll('input[type="checkbox"]');
-    checkboxes.forEach(checkbox => {
-      checkbox.disabled = disabled;
-    });
-  }
-
-  async saveSettings() {
+  async saveAndUpdate() {
     try {
+      this.isUpdating = true;
       await chrome.storage.sync.set({ categories: this.categories });
-      console.log('Settings saved:', this.categories);
+      await this.updateTabs();
+      this.showNotification('Settings updated successfully!', 'success');
     } catch (error) {
       console.error('Error saving settings:', error);
-      throw new Error('Failed to save settings');
+      this.showNotification('Failed to update settings', 'error');
+    } finally {
+      this.isUpdating = false;
+      this.renderCategories();
     }
   }
 
-  async notifyContentScript() {
-    try {
-      await chrome.runtime.sendMessage({ type: 'settingsUpdated' });
-      console.log('Notification sent to background script');
-    } catch (error) {
-      console.error('Error notifying content script:', error);
-      throw new Error('Failed to update filter');
-    }
+  async updateTabs() {
+    await chrome.runtime.sendMessage({
+      type: 'settingsUpdated',
+      settings: this.categories
+    });
   }
 
   showNotification(message, type) {
     const notification = document.getElementById('notification');
+    if (!notification) return;
+
     notification.textContent = message;
     notification.className = `notification ${type}`;
     notification.style.display = 'block';

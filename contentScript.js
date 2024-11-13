@@ -1,7 +1,7 @@
 class ContentFilter {
   constructor() {
     this.categories = {};
-    this.debug = false;
+    this.debug = true;
     this.isProcessing = false;
     this.initialized = false;
     this.initializeFilter();
@@ -45,23 +45,57 @@ class ContentFilter {
         z-index: 2;
         pointer-events: none;
       }
+      /* Hide Shorts section and button */
+      ytd-reel-shelf-renderer,
+      ytd-guide-entry-renderer[title="Shorts"],
+      ytd-mini-guide-entry-renderer[aria-label="Shorts"],
+      ytd-guide-entry-renderer a[title="Shorts"],
+      ytd-mini-guide-entry-renderer a[aria-label="Shorts"],
+      ytd-rich-shelf-renderer[is-shorts] {
+        display: none !important;
+      }
+      body.everything-mode #content,
+      body.everything-mode ytd-browse,
+      body.everything-mode ytd-watch-flexy,
+      body.everything-mode ytd-rich-grid-renderer,
+      body.everything-mode ytd-two-column-browse-results-renderer,
+      body.everything-mode ytd-search {
+        display: none !important;
+      }
+      .everything-message {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 20px 40px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        text-align: center;
+        z-index: 9999;
+      }
+      .everything-message h2 {
+        margin: 0 0 10px 0;
+        color: #333;
+        font-size: 24px;
+      }
+      .everything-message p {
+        margin: 0;
+        color: #666;
+        font-size: 16px;
+      }
     `;
     document.head.appendChild(style);
   }
 
-  async loadSettings() {
-    try {
-      const result = await chrome.storage.sync.get(['categories']);
-      this.categories = result.categories || {};
-      console.log('Loaded filter settings:', this.categories);
-    } catch (error) {
-      console.error('Error loading settings:', error);
-      this.categories = {};
-    }
-  }
-
   setupMessageListener() {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      // Add ping handler
+      if (message.type === 'ping') {
+        sendResponse({ status: 'ready' });
+        return;
+      }
+
       if (message.type === 'settingsUpdated') {
         console.log('Received settings update');
         this.handleSettingsUpdate()
@@ -75,9 +109,53 @@ class ContentFilter {
     });
   }
 
+  handleEverythingMode(enabled) {
+    if (enabled) {
+      // Hide all content
+      document.body.classList.add('everything-mode');
+
+      // Add or update message
+      let message = document.querySelector('.everything-message');
+      if (!message) {
+        message = document.createElement('div');
+        message.className = 'everything-message';
+        message.innerHTML = `
+          <h2>All Content Hidden</h2>
+          <p>Take a break from YouTube</p>
+        `;
+        document.body.appendChild(message);
+      }
+    } else {
+      // Show content
+      document.body.classList.remove('everything-mode');
+
+      // Remove message
+      const message = document.querySelector('.everything-message');
+      if (message) {
+        message.remove();
+      }
+    }
+  }
+
+  async loadSettings() {
+    try {
+      const result = await chrome.storage.sync.get(['categories']);
+      this.categories = result.categories || {};
+      console.log('Loaded filter settings:', this.categories);
+
+      // Check if everything mode is enabled on load
+      if (this.categories.everything?.enabled) {
+        this.handleEverythingMode(true);
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      this.categories = {};
+    }
+  }
+
   setupScrollObserver() {
     this.intersectionObserver = new IntersectionObserver((entries) => {
-      if (this.isProcessing) return;
+      if (this.isProcessing || this.categories.everything?.enabled) return;
 
       const hasNewContent = entries.some(entry => entry.isIntersecting);
       if (hasNewContent) {
@@ -98,7 +176,14 @@ class ContentFilter {
   setupMutationObserver() {
     this.mutationObserver = new MutationObserver(this.debounce(() => {
       if (this.isProcessing) return;
+
+      if (this.categories.everything?.enabled) {
+        this.handleEverythingMode(true);
+        return;
+      }
+
       this.filterNewContent();
+      this.removeShorts();
     }, 100));
 
     this.mutationObserver.observe(document.body, {
@@ -106,6 +191,21 @@ class ContentFilter {
       subtree: true,
       attributes: true,
       attributeFilter: ['src', 'href']
+    });
+  }
+
+  removeShorts() {
+    const shortsElements = document.querySelectorAll(`
+      ytd-reel-shelf-renderer,
+      ytd-guide-entry-renderer[title="Shorts"],
+      ytd-mini-guide-entry-renderer[aria-label="Shorts"],
+      ytd-guide-entry-renderer a[title="Shorts"],
+      ytd-mini-guide-entry-renderer a[aria-label="Shorts"],
+      ytd-rich-shelf-renderer[is-shorts]
+    `);
+
+    shortsElements.forEach(el => {
+      el.remove();
     });
   }
 
@@ -120,12 +220,23 @@ class ContentFilter {
     this.isProcessing = true;
     try {
       console.log('Filtering all content...');
+      this.removeShorts();
+
+      // Check if everything mode is enabled
+      if (this.categories.everything?.enabled) {
+        this.handleEverythingMode(true);
+        return;
+      } else {
+        this.handleEverythingMode(false);
+      }
+
       const allVideos = document.querySelectorAll(`
-        ytd-rich-item-renderer,
-        ytd-video-renderer,
-        ytd-compact-video-renderer,
-        ytd-grid-video-renderer
+        ytd-rich-item-renderer:not([is-shorts]),
+        ytd-video-renderer:not([is-shorts]),
+        ytd-compact-video-renderer:not([is-shorts]),
+        ytd-grid-video-renderer:not([is-shorts])
       `);
+
       console.log(`Found ${allVideos.length} videos to process`);
       this.processVideos(Array.from(allVideos));
     } catch (error) {
@@ -136,16 +247,19 @@ class ContentFilter {
   }
 
   filterNewContent() {
-    if (!this.initialized) return;
+    if (!this.initialized || this.categories.everything?.enabled) return;
 
     this.isProcessing = true;
     try {
+      this.removeShorts();
+
       const newVideos = document.querySelectorAll(`
-        ytd-rich-item-renderer:not([data-filtered]),
-        ytd-video-renderer:not([data-filtered]),
-        ytd-compact-video-renderer:not([data-filtered]),
-        ytd-grid-video-renderer:not([data-filtered])
+        ytd-rich-item-renderer:not([data-filtered]):not([is-shorts]),
+        ytd-video-renderer:not([data-filtered]):not([is-shorts]),
+        ytd-compact-video-renderer:not([data-filtered]):not([is-shorts]),
+        ytd-grid-video-renderer:not([data-filtered]):not([is-shorts])
       `);
+
       if (newVideos.length > 0) {
         console.log(`Processing ${newVideos.length} new videos`);
         this.processVideos(Array.from(newVideos));
@@ -158,6 +272,11 @@ class ContentFilter {
   }
 
   processVideos(videos) {
+    if (this.categories.everything?.enabled) {
+      this.handleEverythingMode(true);
+      return;
+    }
+
     videos.forEach(video => {
       try {
         if (video.hasAttribute('data-filtered')) return;
@@ -166,22 +285,23 @@ class ContentFilter {
         if (!titleElement) return;
 
         const title = titleElement.textContent?.trim() || '';
-
-        // Check if "everything" category is enabled
-        if (this.categories.everything?.enabled) {
-          this.hideElement(video);
-          this.addLabel(video, 'Blocked');
-          video.setAttribute('data-filtered', 'true');
-          return;
-        }
+        let shouldHide = false;
+        let labelText = '';
 
         // Check for distractions if enabled
         if (this.categories.distraction?.enabled) {
           const isDistraction = this.checkForDistraction(title);
           if (isDistraction) {
-            this.hideElement(video);
-            this.addLabel(video, 'Distraction');
+            shouldHide = true;
+            labelText = 'Distraction';
           }
+        }
+
+        if (shouldHide) {
+          this.hideElement(video);
+          this.addLabel(video, labelText);
+        } else {
+          this.showElement(video);
         }
 
         video.setAttribute('data-filtered', 'true');
@@ -209,21 +329,25 @@ class ContentFilter {
   }
 
   hideElement(element) {
-    if (!element?.style) return;
+    if (!element) return;
     element.classList.add('filtered-content');
   }
 
   showElement(element) {
-    if (!element?.style) return;
+    if (!element) return;
     element.classList.remove('filtered-content');
+    const label = element.querySelector('.category-label');
+    if (label) {
+      label.remove();
+    }
   }
 
   resetFiltering() {
     console.log('Resetting all filtered content...');
+    this.handleEverythingMode(false);
     document.querySelectorAll('[data-filtered]').forEach(el => {
       el.removeAttribute('data-filtered');
       this.showElement(el);
-      el.querySelectorAll('.category-label').forEach(label => label.remove());
     });
   }
 
