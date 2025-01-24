@@ -1,0 +1,37 @@
+[
+    {
+        "label": "numpy",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "numpy",
+        "description": "numpy",
+        "detail": "numpy",
+        "documentation": {}
+    },
+    {
+        "label": "load",
+        "importPath": "gensim.downloader",
+        "description": "gensim.downloader",
+        "isExtraImport": true,
+        "detail": "gensim.downloader",
+        "documentation": {}
+    },
+    {
+        "label": "json",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "json",
+        "description": "json",
+        "detail": "json",
+        "documentation": {}
+    },
+    {
+        "label": "create_minimal_vectors",
+        "kind": 2,
+        "importPath": "vector_gen",
+        "description": "vector_gen",
+        "peekOfCode": "def create_minimal_vectors():\n    print(\"Loading word vectors...\")\n    words = load('glove-twitter-25')  \n    categories = {\n        'entertainment': [\n            'movie', 'film', 'music', 'game', 'play', 'fun', 'dance', 'sing',\n            'concert', 'theater', 'show', 'series', 'comedy', 'drama', 'art',\n            'entertainment', 'performance', 'actor', 'actress', 'celebrity'\n        ],\n        'technology': [",
+        "detail": "vector_gen",
+        "documentation": {}
+    }
+]
