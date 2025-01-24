@@ -27,5 +27,14 @@
     "matches": ["https://www.youtube.com/*"],
     "js": ["contentScript.js"],
     "run_at": "document_idle"
-  }]
+  }],
+  "commands": {
+    "toggle-extension": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Toggle filtering"
+    }
+  }
 }

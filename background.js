@@ -22,6 +22,41 @@ const DEFAULT_SETTINGS = {
     }
 };
 
+chrome.commands.onCommand.addListener(async (command) => {
+    if (command === "toggle-extension") {
+        try {
+            // Get current settings
+            const result = await chrome.storage.sync.get(['categories']);
+            const settings = result.categories || DEFAULT_SETTINGS;
+            
+            // Toggle both filters
+            settings.distraction.enabled = !settings.distraction.enabled;
+            settings.everything.enabled = !settings.everything.enabled;
+            
+            // Save updated settings
+            await chrome.storage.sync.set({ categories: settings });
+            
+            // Notify that settings were updated
+            chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+                chrome.tabs.sendMessage(tabs[0].id, {
+                    type: 'settingsUpdated',
+                    settings: settings
+                });
+            });
+            
+            // Optional: Show notification
+            chrome.notifications.create({
+                type: 'basic',
+                iconUrl: 'icon48.png',
+                title: 'CustomTube',
+                message: `Filtering ${settings.distraction.enabled ? 'enabled' : 'disabled'}`
+            });
+        } catch (error) {
+            console.error('Error toggling extension:', error);
+        }
+    }
+});
+
 // Listen for installation
 chrome.runtime.onInstalled.addListener(async () => {
     try {
